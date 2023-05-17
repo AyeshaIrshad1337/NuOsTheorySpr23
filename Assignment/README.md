@@ -1,15 +1,15 @@
-Assignment of OS
-<code>
+HERE IS THE OS CODE FOR PROCESS :
+```C
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
 #include <sys/shm.h>
 #include <sys/wait.h>
-  
-#define BOARD_SIZE 100  
-#define NUM_GENERATIONS 100  
-#define NUM_PROCESSES 4  
-  
+
+#define BOARD_SIZE 5
+#define NUM_GENERATIONS 5
+#define NUM_PROCESSES 4
+
 // Function to initialize the game board with random values
 void init_board(int *board) {
     for (int i = 0; i < BOARD_SIZE * BOARD_SIZE; i++) {
@@ -21,10 +21,11 @@ void init_board(int *board) {
 void print_board(int *board) {
     for (int i = 0; i < BOARD_SIZE; i++) {
         for (int j = 0; j < BOARD_SIZE; j++) {
-            printf("%c ", board[i * BOARD_SIZE + j] ? '*' : '-');
+            printf("%d ", board[i * BOARD_SIZE + j]);
         }
         printf("\n");
     }
+    printf("\n");
 }
 
 // Function to apply the rules of the game to a single cell
@@ -67,11 +68,14 @@ void simulate_board(int *board, int start_row, int end_row, int *pipe_fd) {
                 board[i * BOARD_SIZE + j] = new_val;
             }
         }
+
         // Send a message to the parent process indicating that this process has completed one iteration
         write(pipe_fd[1], &msg, sizeof(msg));
+
         // Wait for a message from the parent process to proceed to the next iteration
         read(pipe_fd[0], &msg, sizeof(msg));
     }
+
     // Send a message to the parent process indicating that this process has completed all iterations
     write(pipe_fd[1], &msg, sizeof(msg));
 }
@@ -85,46 +89,63 @@ int main() {
     int pipe_fd[NUM_PROCESSES][2];
     pid_t pid[NUM_PROCESSES];
     int rows_per_process = BOARD_SIZE / NUM_PROCESSES;
-   
 
-  // Create pipes for inter-process communication
-for (int i = 0; i < NUM_PROCESSES; i++) {
-    if (pipe(pipe_fd[i]) == -1) {
-        fprintf(stderr, "Error creating pipe\n");
-        return 1;
-    }
-}
-
-// Fork child processes and execute Game of Life algorithm
-for (int i = 0; i < NUM_PROCESSES; i++) {
-    pid[i] = fork();
-    if (pid[i] == 0) {
-        // Child process
-        int start_row = i * rows_per_process;
-        int end_row = (i + 1) * rows_per_process - 1;
-        if (i == NUM_PROCESSES - 1) {
-            // Last process handles any remaining rows
-            end_row = BOARD_SIZE - 1;
+    // Create pipes for inter-process communication
+    for (int i = 0; i < NUM_PROCESSES; i++) {
+        if (pipe(pipe_fd[i]) == -1) {
+            fprintf(stderr, "Error creating pipe\n");
+            return 1;
         }
-        close(pipe_fd[i][0]); // Close read end of pipe
-        game_of_life(board, start_row, end_row, pipe_fd[i][1]);
-        close(pipe_fd[i][1]); // Close write end of pipe
-        exit(0);
-    } else if (pid[i] < 0) {
-        fprintf(stderr, "Error forking child process\n");
-        return 1;
     }
+
+    // Fork child processes and execute Game of Life algorithm
+    for (int i = 0; i < NUM_PROCESSES; i++) {
+        pid[i] = fork();
+        if (pid[i] == 0) {
+            // Child process
+            int start_row = i * rows_per_process;
+            int end_row = (i + 1) * rows_per_process - 1;
+            if (i == NUM_PROCESSES - 1) {
+                // Last process handles any remaining rows
+                end_row = BOARD_SIZE - 1;
+            }
+            close(pipe_fd[i][0]); // Close read end of pipe
+            simulate_board(board, start_row, end_row, pipe_fd[i]);
+            close(pipe_fd[i][1]); // Close write end of pipe
+            exit(0);
+        } else if (pid[i] < 0) {
+            fprintf(stderr, "Error forking child process\n");
+            return 1;
+        }
+    }
+
+    // Parent process synchronizes with child processes after each generation
+    int msg = 0;
+    for (int gen = 0; gen < NUM_GENERATIONS; gen++) {
+        // Wait for all child processes to complete one iteration
+        for (int i = 0; i < NUM_PROCESSES; i++) {
+            read(pipe_fd[i][0], &msg, sizeof(msg));
+        }
+
+        // Send a message to all child processes to proceed to the next iteration
+        for (int i = 0; i < NUM_PROCESSES; i++) {
+            write(pipe_fd[i][1], &msg, sizeof(msg));
+        }
+    }
+
+    // Parent process waits for all child processes to finish
+    for (int i = 0; i < NUM_PROCESSES; i++) {
+        waitpid(pid[i], NULL, 0);
+    }
+
+    // Print the final state of the game board
+    print_board(board);
+
+    // Detach and remove shared memory segment
+    shmdt(board);
+    shmctl(shmid, IPC_RMID, NULL);
+
+    return 0;
 }
 
-// Parent process waits for all child processes to finish
-for (int i = 0; i < NUM_PROCESSES; i++) {
-    waitpid(pid[i], NULL, 0);
-}
-
-// Detach and remove shared memory segment
-shmdt(board);
-shmctl(shmid, IPC_RMID, NULL);
-
-return 0;
-}
-</code>
+```
